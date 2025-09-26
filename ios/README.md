@@ -211,7 +211,7 @@ extension ViewController: WKScriptMessageHandler {
         print("ViewController#invokeButtonPage")
         
         token = _token
-        let safariView = SFSafariViewController(url: NSURL(string: "https://localhost:8443/doAmazonPay?token=\(token!)")! as URL)
+        let safariView = SFSafariViewController(url: NSURL(string: "https://127.0.0.1:3443/doAmazonPay?token=\(token!)")! as URL)
         present(safariView, animated: true, completion: nil)
     }
 ```

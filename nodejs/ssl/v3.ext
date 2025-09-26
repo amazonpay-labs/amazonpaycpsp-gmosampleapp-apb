@@ -5,5 +5,5 @@ distinguished_name=req_distinguished_name
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid:always,issuer:always
 basicConstraints=CA:TRUE
-subjectAltName=IP:10.0.2.2,DNS:localhost
+subjectAltName=IP:10.0.2.2,IP:127.0.0.1,DNS:localhost
 extendedKeyUsage=critical,timeStamping,serverAuth,clientAuth,codeSigning,emailProtection

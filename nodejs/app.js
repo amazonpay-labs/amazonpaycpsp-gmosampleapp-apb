@@ -207,5 +207,5 @@ function save(userSession, data) {
 // Start App server
 //---------------------
 appServer.listen(3080);
-tlsAppServer.listen(8443);
-console.log(`App listening on port 3080(HTTP) and 8443(HTTPS).`);
+tlsAppServer.listen(3443);
+console.log(`App listening on port 3080(HTTP) and 3443(HTTPS).`);

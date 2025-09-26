@@ -204,7 +204,7 @@ WebView上では本物のAmazon Payボタンを配置できないので、ここ
         :
     void invokeAmazonPayPage(Context context, String _token) {
         token = _token;
-        invokeSecureWebview(context, "https://10.0.2.2:8443/doAmazonPay?token=" + token);
+        invokeSecureWebview(context, "https://10.0.2.2:3443/doAmazonPay?token=" + token);
     }
 
     private void invokeSecureWebview(Context context, String url) {
