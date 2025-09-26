@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <meta name="google" content="notranslate" />
+    <title>Amazon Pay Sample</title>
+
+    <style>
+        .LinkButton {
+            width: 60vw;
+            max-width: 300px;
+            padding: 10px;
+            color: #fff;
+            background-color: #eb6100;
+            border-radius: 100vh;
+            text-align: center;
+            margin: auto;
+            font-size: 20px;
+            font-weight: bold;
+        }
+    </style>
+
+</head>
+
+<body>
+    <div id="ExecDiv" style="display: flex; flex-direction: column;">
+        <h3>Amazon Payの処理を続行します。</h3>
+        <a id="ExecButton" href="#" class="LinkButton">
+            次　へ
+        </a>
+        <div id="AmazonPayButton" style="display: none"></div>
+    </div>
+    <div id="CompDiv" style="display: none; flex-direction: column;">
+        <h3>支払いを確定します。</h3>
+        <a id="CompButton" href="#" class="LinkButton">
+            確　定
+        </a>
+    </div>
+    <div id="CancelDiv" style="display: none; flex-direction: column;">
+        <h3 id="message"></h3>
+        <a id="cancel" href="https://dzpmbh5sopa6k.cloudfront.net/cancel" class="LinkButton">
+            アプリに戻る
+        </a>
+    </div>
+    <script src="https://static-fe.payments-amazon.com/checkout.js"></script>
+    <script type="text/javascript" charset="utf-8">
+        function backToApp(msg) {
+            document.getElementById('ExecDiv').style.display = 'none'
+            document.getElementById('message').textContent = msg || '';
+            document.getElementById('CancelDiv').style.display = 'flex'
+        }
+
+        function getURLParameter(name, source) {
+            return decodeURIComponent((new RegExp('[?|&amp;|#]' + name + '=' +
+                            '([^&;]+?)(&|#|;|$)').exec(source) || [, ""])[1].replace(/\+/g, '%20')) || null;
+        }
+
+        const token = getURLParameter('token', location.search);
+
+        amazon.Pay.renderJSButton('#AmazonPayButton', {
+            // set checkout environment
+            merchantId: 'A23YM23UEBY8FM',
+            ledgerCurrency: 'JPY',
+            // customize the buyer experience
+            checkoutLanguage: 'ja_JP',
+            productType: 'PayOnly',
+            // CheckoutMode is a required parameter for PayOnly & PayAndShip APB checkout.
+            checkoutMode: 'ProcessOrder',
+            placement: 'Cart',
+            sandbox: true,
+            buttonColor: 'Gold',
+            estimatedOrderAmount: {
+                amount: "<%= amount.chargeAmount.amount %>",
+                currencyCode: "JPY"
+            },
+            // provide checkout configuration generated in previous step
+            checkoutSessionConfig: {
+                storeId: "amzn1.application-oa2-client.242a859efb5f47f09847f3f0aebd50ca",
+                scopes: ["name", "email", "phoneNumber", "billingAddress"],
+                paymentDetails: <%- JSON.stringify(amount) %>,
+                processorSpecifications: {name: 'gmopg'},
+                deliverySpecifications: {
+                    specialRestrictions: [
+                        "RestrictPOBoxes"
+                    ],
+                    addressRestrictions: {
+                        type: "Allowed",
+                        restrictions: {
+                            JP: {}
+                        }
+                    }
+                }
+            },
+
+            // add placeholders for event handlers for user interaction
+
+            /** Invokes when initiated checkout and authenticated **/
+            onInitCheckout: function(event) {
+                console.log(event);
+            },
+
+            /** Invokes when customer clicks Pay Now **/
+            onCompleteCheckout: async function (event) {
+                console.log(event);
+                try {
+                    const res = await fetch('/sample/compData', {
+                        method: 'POST',
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({
+                            token: token,
+                            params: {
+                                billingAddress: event.billingAddress,
+                                paymentDescriptor: event.paymentDescriptor,
+                                chargePermissionId: event.amazonChargePermissionId,
+                                amazonPayCheckoutType: event.amazonPayCheckoutType,
+                                amazonPayMFAReturnUrl: event.amazonPayMFAReturnUrl,  // Needed for MFA use-case
+                            }
+                        })
+                    });
+
+                    const result = await res.json();
+                    console.log(result);
+
+                    if(res.status === 200 && result.status === 'OK') { // 成功
+                        document.getElementById("CompButton").href = `https://dzpmbh5sopa6k.cloudfront.net/complete?compToken=${result.compToken}`;
+                        document.getElementById("CompDiv").style.display = 'flex'
+                        document.getElementById('ExecDiv').style.display = 'none'
+                        return {status: "success"}; // [“success”, “decline”, “error”] return the status of the payment processing
+                    } else { // 失敗
+                        backToApp(result.message);
+                        return {status: "decline"}; // [“success”, “decline”, “error”] return the status of the payment processing
+                    }
+                } catch (err) { // 想定外エラー
+                    console.error(err);
+                    backToApp(`エラーが発生しました。やり直して下さい。`);
+                    return {status: "error"}; // [“success”, “decline”, “error”] return the status of the payment processing
+                }
+            },
+
+            /** Invokes when customer abandons the checkout **/
+            onCancel: function (event) {
+                // take customer back to cart page or product details page based on merchant checkout
+                console.log(`onCancel called. - event: ${event}`);
+                backToApp('キャンセルしました。')
+            },
+
+            /** Invokes when customer abandons the checkout **/
+            onError: function (event) {
+                // take customer back to cart page or product details page based on merchant checkout
+                console.err(event);
+                backToApp(`エラーが発生しました。やり直して下さい。`);
+            }
+        });
+
+        document.getElementById('ExecButton').addEventListener('click', (e) => {
+            document.getElementById('AmazonPayButton').click();
+        });
+    </script>
+</body>
+</html>

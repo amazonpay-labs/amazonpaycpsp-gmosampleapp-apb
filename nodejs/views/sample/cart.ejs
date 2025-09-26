@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <meta name="google" content="notranslate"/>
+    <title>Amazon Pay Sample</title>
+
+    <style>
+        .popup-cover {
+            align-items: center;
+            justify-content: center;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,.9);
+            top: 0;
+            left: 0;
+            z-index: 1001;
+        }
+        .loader {
+            width: 50px;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            background:
+                radial-gradient(farthest-side,#ffa516 94%,#0000) top/8px 8px no-repeat,
+                conic-gradient(#0000 30%,#ffa516);
+            -webkit-mask: radial-gradient(farthest-side,#0000 calc(100% - 8px),#000 0);
+            animation: l13 1s infinite linear;
+            text-align: center;
+        }
+        @keyframes l13{
+            100%{transform: rotate(1turn)}
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+    
+</head>
+<body>
+    <br/>
+    <div id="white_cover" class="popup-cover" style="display: none;">
+        <div class="loader"></div>
+    </div>
+    <div id="message_cover" class="popup-cover" style="display: none;">
+        <h2 id="message"></h2>
+    </div>
+    <h2 class="card-title">購入画面</h2>
+    <img style="padding: 5px; text-align: center; width: 100%;" src="/static/sample/img/amazonband.png">
+    <h3 style="text-align: center;">￥8,800 (税込み)</h3><br/>
+    <div id="AmazonPayButton" style="margin: 0 auto; text-align: center;"></div>
+
+    <script src="https://static-fe.payments-amazon.com/checkout.js"></script>
+    <script type="text/javascript">
+        let client = "browser";
+        if(window.androidApp) {
+            client = "androidApp";
+        } else if(window.webkit && webkit.messageHandlers && webkit.messageHandlers.iosApp) {
+            client = "iosApp";
+        }
+
+        if(client === 'browser') { // ブラウザの場合、Amazon Payボタンの描画
+            amazon.Pay.renderJSButton('#AmazonPayButton', {
+                // set checkout environment
+                merchantId: 'A23YM23UEBY8FM',
+                ledgerCurrency: 'JPY',
+                // customize the buyer experience
+                checkoutLanguage: 'ja_JP',
+                productType: 'PayOnly',
+                // CheckoutMode is a required parameter for PayOnly & PayAndShip APB checkout.
+                checkoutMode: 'ProcessOrder',
+                placement: 'Cart',
+                sandbox: true,
+                buttonColor: 'Gold',
+                estimatedOrderAmount: {
+                    amount: "<%= amount.chargeAmount.amount %>",
+                    currencyCode: "JPY"
+                },
+                // provide checkout configuration generated in previous step
+                checkoutSessionConfig: {
+                    storeId: "amzn1.application-oa2-client.242a859efb5f47f09847f3f0aebd50ca",
+                    scopes: ["name", "email", "phoneNumber", "billingAddress"],
+                    paymentDetails: <%- JSON.stringify(amount) %>,
+                    processorSpecifications: {name: 'gmopg'},
+                    deliverySpecifications: {
+                        specialRestrictions: [
+                            "RestrictPOBoxes"
+                        ],
+                        addressRestrictions: {
+                            type: "Allowed",
+                            restrictions: {
+                                JP: {}
+                            }
+                        }
+                    }
+                },
+
+                // add placeholders for event handlers for user interaction
+                /** Invokes when initiated checkout and authenticated **/
+                onInitCheckout: function(event) {
+                // return initial cart details, total amount, tax, delivery options
+                    console.log(event);
+                },
+
+                /** Invokes when customer clicks Pay Now **/
+                onCompleteCheckout: onCompleteCheckout,
+                /** Invokes when customer abandons the checkout **/
+                onCancel: function (event) {
+                    // take customer back to cart page or product details page based on merchant checkout
+                    console.log(event);
+                    console.log('onCancel called.');
+                },
+                /** Invokes when customer abandons the checkout **/
+                onError: function (event) {
+                    // take customer back to cart page or product details page based on merchant checkout
+                    console.err(event);
+                }
+            });
+        } else { // アプリの場合、Amazon Payボタンの画像を表示
+            let node = document.createElement("input");
+            node.type = "image";
+            node.src = "/static/img/button_images/Gold/Sandbox-ja_jp-amazonpay-gold-large-button_T2.png";
+            node.style.width = "90%";
+            node.addEventListener('click', (e) => {
+                coverScreen();
+                if(client === 'androidApp') {
+                    androidApp.doAmazonPay('<%= token %>');
+                } else {
+                    webkit.messageHandlers.iosApp.postMessage({op: 'doAmazonPay', token: '<%= token %>'});            
+                }
+            });
+            document.getElementById("AmazonPayButton").appendChild(node);
+        }
+
+        async function onCompleteCheckout (event) {
+            const params = typeof event === "string" ? {
+                token: event.substr(0, event.indexOf('&')),
+                compToken: event.substr(event.indexOf('&') + 1)
+            } : {
+                billingAddress: event.billingAddress,
+                paymentDescriptor: event.paymentDescriptor,
+                chargePermissionId: event.amazonChargePermissionId,
+                amazonPayCheckoutType: event.amazonPayCheckoutType,
+                amazonPayMFAReturnUrl: event.amazonPayMFAReturnUrl  // Needed for MFA use-case
+            };
+            try {
+                const res = await fetch('/sample/createCharge', {
+                    method: 'POST',
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(params)
+                });
+
+                const result = await res.json();
+
+                showMsg(result.message); // TODO 本サンプルでは決済結果の画面表示しかしていませんが、ECサイトの要件に応じてThanksページへの遷移などに変更して下さい。
+
+                if(res.status === 200 && result.status === 'OK') { // 成功
+                    return {status: "success"}; // [“success”, “decline”, “error”] return the status of the payment processing
+                } else { // 失敗
+                    return {status: "decline"}; // [“success”, “decline”, “error”] return the status of the payment processing
+                }
+            } catch (err) { // 想定外エラー
+                console.error(err);
+                showMsg(`エラーが発生しました。やり直して下さい。`);
+                return {status: "error"}; // [“success”, “decline”, “error”] return the status of the payment processing
+            }
+        }
+
+        function loadUrl(url) {
+            location.href = url;
+        }
+        
+        function coverScreen() {
+            document.getElementById('white_cover').style.display = 'flex';
+        }
+
+        function uncoverScreen() {
+            document.getElementById('white_cover').style.display = 'none';
+        }
+
+        function showMsg(msg) {
+            document.getElementById('message').textContent = msg || '';
+            uncoverScreen();
+            document.getElementById('message_cover').style.display = 'flex';
+        }
+
+        document.getElementById('message_cover').addEventListener('click', e => {
+            document.getElementById('message_cover').style.display = 'none';
+        });
+    </script>
+</body>
+</html>
