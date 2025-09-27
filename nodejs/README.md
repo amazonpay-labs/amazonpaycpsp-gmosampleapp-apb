@@ -56,14 +56,7 @@ Seller Centralにログインしてインテグレーションセントラルを
                     scopes: ["name", "email", "phoneNumber", "billingAddress"],
 ```
 
-次に同ページの「編集する」をクリックし、JavaScriptオリジンに、
-- https://127.0.0.1:3443
-- https://10.0.2.2:3443
-
-をそれぞれ設定して「変更を保存する」をクリックして保存します。  
-
-![](docimg/2025-09-26-22-56-22.png)
-
+Note: Sandbox環境ではSellerCentralでのJavaScriptオリジンの設定は不要ですが、本番環境では設定するようにして下さい。  
 
 ## Webサーバーのhttps設定
 [こちら](./ssl/README.md)のコマンドを実行し、https通信用の鍵と証明書を作成します。
