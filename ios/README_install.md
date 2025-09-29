@@ -10,7 +10,8 @@
 プロジェクトが開いたら、Menuの「Product」→「Run」か、画面上部の「Run」ボタンより、applicationを起動してください。
 ![androidstudio-project](docimg/xcode_project.png)
 Simulatorが立ち上がり、サンプルアプリが起動します。(1〜2分かかります。)  
-<img src="docimg/simu_start.png" width="300">
+<img src="docimg/simu_start.png" width="300">  
+Note: iOS18のSimulatorにて、[SFSafariViewController(iOS側のSecure WebView)でWebページが読み込めない不具合](https://developer.apple.com/forums/thread/764468) が報告されているため、テストには使用しないことをお勧めいたします。iOS18のテストが必要な場合には実機をお使いになると良いでしょう。
 
 ### 自己証明書のインストール
 今回のサンプルでは、server側のSSL証明書に自己証明書が使用されているため、サンプルアプリを正しく動作させるためにはその自己証明書をiOS側にInstallする必要があります。  
