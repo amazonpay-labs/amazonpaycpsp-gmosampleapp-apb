@@ -80,9 +80,9 @@ app.get('/sample/cart', async (req, res) => {
     );
 });
 
-//--------------------------------------
-// Amazon Pay実行ページ(モバイルアプリ専用)
-//--------------------------------------
+//-----------------------------------------------------------------------------------------
+// Amazon Pay実行ページ (Secure WebViewからのRequestなので、userSessionにはアクセスできない想定)
+//-----------------------------------------------------------------------------------------
 app.get('/doAmazonPay', async (req, res) => {
     let stored = storage.get(req.query.token);
     if(stored) {
@@ -100,9 +100,9 @@ app.get('/doAmazonPay', async (req, res) => {
     res.render ('doAmazonPay.ejs', stored.cart);
 });
 
-//--------------------------------------------------
-// onCompleteCheckoutのパラメタの保存(モバイルアプリ専用)
-//--------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+// Transaction実行 & 結果の保存 (Secure WebViewからのRequestなので、userSessionにはアクセスできない想定)
+//-------------------------------------------------------------------------------------------------
 app.post('/sample/compData', async (req, res) => {
     console.log(`compData: ${JSON.stringify(req.body, null, 2)}`);
     let resBody = null;

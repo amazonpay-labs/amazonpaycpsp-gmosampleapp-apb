@@ -121,7 +121,7 @@ app.get('/sample/cart', async (req, res) => {
     const locals = {...userSession.cart, token: ''};
     if(req.query.client === 'iosApp' || req.query.client === 'androidApp') {
         const token = crypto.randomBytes(18).toString('base64').replace(/[\/+]/g, c => c === '+' ? '-' : '_');
-        storage.set(token, userSession.cart);
+        storage.set(token, {cart: userSession.cart});
         locals.token = token;
     }
     res.render (
@@ -253,15 +253,14 @@ Amazon Pay実行ページ表示のRequestを受け付けます。
 ```js
 // nodejs/app.jsより抜粋 (見やすくするため、一部加工しています。)
 
-//--------------------------------------
-// Amazon Pay実行ページ(モバイルアプリ専用)
-//--------------------------------------
+//-----------------------------------------------------------------------------------------
+// Amazon Pay実行ページ (Secure WebViewからのRequestなので、userSessionにはアクセスできない想定)
+//-----------------------------------------------------------------------------------------
 app.get('/doAmazonPay', async (req, res) => {
-    console.log(`doAmazonPay: ${JSON.stringify(storage.get(req.query.token), null, 2)}`);
-    res.render (
-        'doAmazonPay.ejs', 
-        storage.get(req.query.token)
-    );
+    let stored = storage.get(req.query.token);
+        :
+    console.log(`doAmazonPay: ${JSON.stringify(stored, null, 2)}`);
+    res.render ('doAmazonPay.ejs', stored.cart);
 });
 ```
 
@@ -337,14 +336,11 @@ Amazon側ページにて「今すぐ支払う」ボタンをタップすると�
                         method: 'POST',
                         headers: {"Content-Type": "application/json"},
                         body: JSON.stringify({
-                            token: token,
-                            params: {
-                                billingAddress: event.billingAddress,
-                                paymentDescriptor: event.paymentDescriptor,
-                                chargePermissionId: event.amazonChargePermissionId,
-                                amazonPayCheckoutType: event.amazonPayCheckoutType,
-                                amazonPayMFAReturnUrl: event.amazonPayMFAReturnUrl,  // Needed for MFA use-case
-                            }
+                            billingAddress: event.billingAddress,
+                            paymentDescriptor: event.paymentDescriptor,
+                            chargePermissionId: event.amazonChargePermissionId,
+                            amazonPayCheckoutType: event.amazonPayCheckoutType,
+                            amazonPayMFAReturnUrl: event.amazonPayMFAReturnUrl,  // Needed for MFA use-case
                         })
                     });
                         :
@@ -354,21 +350,59 @@ Amazon側ページにて「今すぐ支払う」ボタンをタップすると�
 このRequestにより呼び出されるサーバー側の処理が下記です。  
 
 ```js
-//--------------------------------------------------
-// onCompleteCheckoutのパラメタの保存(モバイルアプリ専用)
-//--------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+// Transaction実行 & 結果の保存 (Secure WebViewからのRequestなので、userSessionにはアクセスできない想定)
+//-------------------------------------------------------------------------------------------------
 app.post('/sample/compData', async (req, res) => {
     console.log(`compData: ${JSON.stringify(req.body, null, 2)}`);
-    const compToken = crypto.randomBytes(18).toString('base64').replace(/[\/+]/g, c => c === '+' ? '-' : '_');
-    storage.set(compToken, req.body);
-
+    let resBody = null;
+    try {
+        const stored = storage.get(req.cookies.token);
+        const result = await execTran(req.body, stored.cart);
+        const compToken = crypto.randomBytes(18).toString('base64').replace(/[\/+]/g, c => c === '+' ? '-' : '_');
+        storage.set(compToken, {result, token: stored.originalToken});
+        resBody = {status: 'OK', compToken: compToken};
+    } catch (err) {
+        console.error(err);
+        resBody = {status: 'NG', message: '決済に失敗しました。やり直して下さい。'};
+    }
     res.writeHead(200, {'Content-Type': 'application/json; charset=UTF-8'});
-    res.write(JSON.stringify({status: 'OK', compToken: compToken}));
+    res.write(JSON.stringify(resBody));
     res.end()
 });
+    :
+async function execTran(params, cart) {
+    const orderId = crypto.randomBytes(13).toString('hex');
+    const access = await callAPI('EntryTranAmazonpay', {
+        ...keyinfo,
+        OrderID: orderId,
+        JobCd: 'AUTH',
+        Amount: `${cart.amount.chargeAmount.amount}`,
+        AmazonpayType: '4',
+    });
+
+    const tran = await callAPI('ExecTranAmazonpay', {
+        ...keyinfo,
+        ...access,
+        OrderID: orderId,
+        RetURL: params.amazonPayMFAReturnUrl,
+        AmazonChargePermissionID: params.chargePermissionId,
+        ApbType: 'PayOnly',
+        Description: "ご購入ありがとうございます。",
+    });
+
+    // Security Check
+    const textToHash = `${orderId}${access.AccessID}${keyinfo.ShopID}${keyinfo.ShopPass}${params.chargePermissionId}`;
+    const hash = crypto.createHash('sha256').update(textToHash).digest('hex');
+    console.log(`Hash: ${hash}`);
+    if(hash !== tran.CheckString) throw new Error('CheckStringが一致しません。');
+
+    return [access, tran];
+}
 ```
 
-新しく「compToken」というtokenを発行し、それをkeyとしてstorageにパラメタとして受け取った値を保存し、ResponseとしてcompTokenを返却しています。  
+Requestのbodyと、アクセス用tokenで保存したcart情報をパラメタとして、GMO−PGのAPIを呼び出して注文を実行します。  
+処理結果は「compToken」というtokenを発行してstorageに保存し、ResponseとしてこのcompTokenを返却しています。  
 このResponseを処理するのがEvent Handlerの後半です。  
 
 ```js
@@ -384,6 +418,7 @@ app.post('/sample/compData', async (req, res) => {
                         document.getElementById("CompButton").href = `https://dzpmbh5sopa6k.cloudfront.net/complete?compToken=${result.compToken}`;
                         document.getElementById("CompDiv").style.display = 'flex'
                         document.getElementById('ExecDiv').style.display = 'none'
+                        document.getElementById('CancelDiv').style.display = 'none'
                         return {status: "success"}; // [“success”, “decline”, “error”] return the status of the payment processing
                     } else { // 失敗
                         backToApp(result.message);
@@ -503,59 +538,35 @@ MainActivity#onResumeの該当の処理は下記の通りです。
 //-------------
 app.post('/sample/createCharge', async (req, res) => {
     console.log(`createCharge: ${JSON.stringify(req.body, null, 2)}`);
-    let result = null;
+    let resBody = null;
     try {
-        let params;
-        if(req.body.compToken) {
-            const cached = storage.get(req.body.compToken);
-            if(cached.token !== req.body.token) throw new Error(`tokenが一致しません。${cached.token} != ${req.body.token}`);
-            params = cached.params;
+        // Transaction実行
+        let access, tran;
+        if(req.body.compToken) { // モバイルアプリの場合、Secure WebViewで実行済みなので保存された結果の取得.
+            const stored = storage.get(req.body.compToken);
+            if(stored.token !== req.body.token) throw new Error(`tokenが一致しません。${stored.token} != ${req.body.token}`);
+            [access, tran] = stored.result;
         } else {
-            params = req.body;
+            [access, tran] = await execTran(req.body, userSession.cart);
         }
-        const orderId = crypto.randomBytes(13).toString('hex');
-        const access = await callAPI('EntryTranAmazonpay', {
-            ...keyinfo,
-            OrderID: orderId,
-            JobCd: 'AUTH',
-            Amount: `${userSession.cart.amount.chargeAmount.amount}`,
-            AmazonpayType: '4',
-        });
-        save(userSession, access); // DBへの保存
-
-        const start = await callAPI('ExecTranAmazonpay', {
-            ...keyinfo,
-            ...access,
-            OrderID: orderId,
-            RetURL: params.amazonPayMFAReturnUrl,
-            AmazonChargePermissionID: params.chargePermissionId,
-            ApbType: 'PayOnly',
-            Description: "ご購入ありがとうございます。",
-        });
-        save(userSession, start); // DBへの保存
-
-        // Security Check
-        const textToHash = `${orderId}${access.AccessID}${keyinfo.ShopID}${keyinfo.ShopPass}${start.AmazonChargePermissionID}`;
-        const hash = crypto.createHash('sha256').update(textToHash).digest('hex');
-        console.log(`Hash: ${hash}`);
-        if(hash !== start.CheckString) throw new Error('CheckStringが一致しません。');
+        save(userSession, access, tran); // 受注情報のDB等への保存
 
         // 注文確定(※ 配送が必要な商品の場合には、配送手続き完了後に実行します。)
         const sales = await callAPI('AmazonpaySales', {
             ...keyinfo,
             ...access,
-            OrderID: orderId,
+            OrderID: tran.OrderID,
             Amount: `${userSession.cart.amount.chargeAmount.amount}`,
         });
-        save(userSession, sales); // DBへの保存
-        result = {status: 'OK', message: 'ご購入ありがとうございました。'};
+        save(userSession, sales); // 受注情報のDB等への保存
+        resBody = {status: 'OK', message: 'ご購入ありがとうございました。'};
     } catch (err) {
         console.error(err);
-        result = {status: 'NG', message: '決済に失敗しました。やり直して下さい。'};
+        resBody = {status: 'NG', message: '決済に失敗しました。やり直して下さい。'};
     }
 
     res.writeHead(200, {'Content-Type': 'application/json; charset=UTF-8'});
-    res.write(JSON.stringify(result));
+    res.write(JSON.stringify(resBody));
     res.end()
 });
 ```
@@ -563,7 +574,7 @@ app.post('/sample/createCharge', async (req, res) => {
 こちらもブラウザとMobileとで共有された処理になります。冒頭にてリクエストのパラメタに「compToken」がある・なしで分岐しておりますが、今回のモバイルアプリのケースは「compToken」がある場合になります。  
 この場合、compTokenからサーバー側に保存されたデータを取り出します。
 このときSecurity checkとして、モバイルアプリから渡されたアクセス用tokenがサーバーに保存された値を一致するかを判定しています。これにより、処理の途中でユーザや環境が入れ替わっていないことを確認しています。  
-取得したデータをパラメタとして以降のGMO−PGのAPIを呼び出しを行い、決済処理の実行を行って処理結果をResponseとして返却します。  
+取得したデータをパラメタとして以降のGMO−PGのAPIを呼び出しを行い、注文を確定して処理結果をResponseとして返却します。  
 このResponseを処理するのが「onCompleteCheckout」の後半です。  
 
 ```js
