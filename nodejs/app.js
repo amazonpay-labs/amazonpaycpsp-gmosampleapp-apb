@@ -71,7 +71,7 @@ app.get('/sample/cart', async (req, res) => {
     const locals = {...userSession.cart, token: ''};
     if(req.query.client === 'iosApp' || req.query.client === 'androidApp') {
         const token = crypto.randomBytes(18).toString('base64').replace(/[\/+]/g, c => c === '+' ? '-' : '_');
-        storage.set(token, userSession.cart);
+        storage.set(token, {cart: userSession.cart});
         locals.token = token;
     }
     res.render (
@@ -84,11 +84,20 @@ app.get('/sample/cart', async (req, res) => {
 // Amazon Pay実行ページ(モバイルアプリ専用)
 //--------------------------------------
 app.get('/doAmazonPay', async (req, res) => {
-    console.log(`doAmazonPay: ${JSON.stringify(storage.get(req.query.token), null, 2)}`);
-    res.render (
-        'doAmazonPay.ejs', 
-        storage.get(req.query.token)
-    );
+    let stored = storage.get(req.query.token);
+    if(stored) {
+        console.log('1st');
+        storage.delete(req.query.token); // 削除
+        const newToken = crypto.randomBytes(18).toString('base64').replace(/[\/+]/g, c => c === '+' ? '-' : '_');
+        stored.originalToken = req.query.token;
+        storage.set(newToken, stored);
+        res.cookie('token', newToken, {httpOnly: true});
+    } else {
+        console.log('2nd or more');
+        stored = storage.get(req.cookies.token);
+    }
+    console.log(`doAmazonPay: ${JSON.stringify(stored, null, 2)}`);
+    res.render ('doAmazonPay.ejs', stored.cart);
 });
 
 //--------------------------------------------------
@@ -96,11 +105,19 @@ app.get('/doAmazonPay', async (req, res) => {
 //--------------------------------------------------
 app.post('/sample/compData', async (req, res) => {
     console.log(`compData: ${JSON.stringify(req.body, null, 2)}`);
-    const compToken = crypto.randomBytes(18).toString('base64').replace(/[\/+]/g, c => c === '+' ? '-' : '_');
-    storage.set(compToken, req.body);
-
+    let resBody = null;
+    try {
+        const stored = storage.get(req.cookies.token);
+        const result = await execTran(req.body, stored.cart);
+        const compToken = crypto.randomBytes(18).toString('base64').replace(/[\/+]/g, c => c === '+' ? '-' : '_');
+        storage.set(compToken, {result, token: stored.originalToken});
+        resBody = {status: 'OK', compToken: compToken};
+    } catch (err) {
+        console.error(err);
+        resBody = {status: 'NG', message: '決済に失敗しました。やり直して下さい。'};
+    }
     res.writeHead(200, {'Content-Type': 'application/json; charset=UTF-8'});
-    res.write(JSON.stringify({status: 'OK', compToken: compToken}));
+    res.write(JSON.stringify(resBody));
     res.end()
 });
 
@@ -109,65 +126,70 @@ app.post('/sample/compData', async (req, res) => {
 //-------------
 app.post('/sample/createCharge', async (req, res) => {
     console.log(`createCharge: ${JSON.stringify(req.body, null, 2)}`);
-    let result = null;
+    let resBody = null;
     try {
-        let params;
-        if(req.body.compToken) {
-            const cached = storage.get(req.body.compToken);
-            if(cached.token !== req.body.token) throw new Error(`tokenが一致しません。${cached.token} != ${req.body.token}`);
-            params = cached.params;
+        // Transaction実行
+        let access, tran;
+        if(req.body.compToken) { // モバイルアプリの場合、Secure WebViewで実行済みなので保存された結果の取得.
+            const stored = storage.get(req.body.compToken);
+            if(stored.token !== req.body.token) throw new Error(`tokenが一致しません。${stored.token} != ${req.body.token}`);
+            [access, tran] = stored.result;
         } else {
-            params = req.body;
+            [access, tran] = await execTran(req.body, userSession.cart);
         }
-        const orderId = crypto.randomBytes(13).toString('hex');
-        const access = await callAPI('EntryTranAmazonpay', {
-            ...keyinfo,
-            OrderID: orderId,
-            JobCd: 'AUTH',
-            Amount: `${userSession.cart.amount.chargeAmount.amount}`,
-            AmazonpayType: '4',
-        });
-        save(userSession, access); // DBへの保存
-
-        const start = await callAPI('ExecTranAmazonpay', {
-            ...keyinfo,
-            ...access,
-            OrderID: orderId,
-            RetURL: params.amazonPayMFAReturnUrl,
-            AmazonChargePermissionID: params.chargePermissionId,
-            ApbType: 'PayOnly',
-            Description: "ご購入ありがとうございます。",
-        });
-        save(userSession, start); // DBへの保存
-
-        // Security Check
-        const textToHash = `${orderId}${access.AccessID}${keyinfo.ShopID}${keyinfo.ShopPass}${start.AmazonChargePermissionID}`;
-        const hash = crypto.createHash('sha256').update(textToHash).digest('hex');
-        console.log(`Hash: ${hash}`);
-        if(hash !== start.CheckString) throw new Error('CheckStringが一致しません。');
+        save(userSession, access, tran); // 受注情報のDB等への保存
 
         // 注文確定(※ 配送が必要な商品の場合には、配送手続き完了後に実行します。)
         const sales = await callAPI('AmazonpaySales', {
             ...keyinfo,
             ...access,
-            OrderID: orderId,
+            OrderID: tran.OrderID,
             Amount: `${userSession.cart.amount.chargeAmount.amount}`,
         });
-        save(userSession, sales); // DBへの保存
-        result = {status: 'OK', message: 'ご購入ありがとうございました。'};
+        save(userSession, sales); // 受注情報のDB等への保存
+        resBody = {status: 'OK', message: 'ご購入ありがとうございました。'};
     } catch (err) {
         console.error(err);
-        result = {status: 'NG', message: '決済に失敗しました。やり直して下さい。'};
+        resBody = {status: 'NG', message: '決済に失敗しました。やり直して下さい。'};
     }
 
     res.writeHead(200, {'Content-Type': 'application/json; charset=UTF-8'});
-    res.write(JSON.stringify(result));
+    res.write(JSON.stringify(resBody));
     res.end()
 });
 
 //-------------------
 // Libraries
 //-------------------
+async function execTran(params, cart) {
+    const orderId = crypto.randomBytes(13).toString('hex');
+    const access = await callAPI('EntryTranAmazonpay', {
+        ...keyinfo,
+        OrderID: orderId,
+        JobCd: 'AUTH',
+        Amount: `${cart.amount.chargeAmount.amount}`,
+        AmazonpayType: '4',
+    });
+
+    const tran = await callAPI('ExecTranAmazonpay', {
+        ...keyinfo,
+        ...access,
+        OrderID: orderId,
+        RetURL: params.amazonPayMFAReturnUrl,
+        AmazonChargePermissionID: params.chargePermissionId,
+        ApbType: 'PayOnly',
+        Description: "ご購入ありがとうございます。",
+    });
+
+    // Security Check
+    const textToHash = `${orderId}${access.AccessID}${keyinfo.ShopID}${keyinfo.ShopPass}${params.chargePermissionId}`;
+    const hash = crypto.createHash('sha256').update(textToHash).digest('hex');
+    console.log(`Hash: ${hash}`);
+    if(hash !== tran.CheckString) throw new Error('CheckStringが一致しません。');
+
+    return [access, tran];
+}
+
 async function callAPI(name, params) {
     const res = await axios.post(`https://pt01.mul-pay.jp/payment/${name}.idPass`,
         querystring.stringify(params));
@@ -199,7 +221,7 @@ function decodeWin31j(text) {
     return iconv.decode(escapedBytes, 'Windows-31J');
 }
 
-function save(userSession, data) {
+function save(userSession, ...data) {
     // 受注情報をユーザと紐づけてDB等に保存. こちらはサンプルなので実際には何もしない、ダミー実装.
 }
 

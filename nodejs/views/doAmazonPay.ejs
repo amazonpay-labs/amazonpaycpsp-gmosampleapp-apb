@@ -110,14 +110,11 @@
                         method: 'POST',
                         headers: {"Content-Type": "application/json"},
                         body: JSON.stringify({
-                            token: token,
-                            params: {
-                                billingAddress: event.billingAddress,
-                                paymentDescriptor: event.paymentDescriptor,
-                                chargePermissionId: event.amazonChargePermissionId,
-                                amazonPayCheckoutType: event.amazonPayCheckoutType,
-                                amazonPayMFAReturnUrl: event.amazonPayMFAReturnUrl,  // Needed for MFA use-case
-                            }
+                            billingAddress: event.billingAddress,
+                            paymentDescriptor: event.paymentDescriptor,
+                            chargePermissionId: event.amazonChargePermissionId,
+                            amazonPayCheckoutType: event.amazonPayCheckoutType,
+                            amazonPayMFAReturnUrl: event.amazonPayMFAReturnUrl,  // Needed for MFA use-case
                         })
                     });
 
@@ -128,6 +125,7 @@
                         document.getElementById("CompButton").href = `https://dzpmbh5sopa6k.cloudfront.net/complete?compToken=${result.compToken}`;
                         document.getElementById("CompDiv").style.display = 'flex'
                         document.getElementById('ExecDiv').style.display = 'none'
+                        document.getElementById('CancelDiv').style.display = 'none'
                         return {status: "success"}; // [“success”, “decline”, “error”] return the status of the payment processing
                     } else { // 失敗
                         backToApp(result.message);
