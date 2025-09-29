@@ -47,19 +47,6 @@
     </div>
     <script src="https://static-fe.payments-amazon.com/checkout.js"></script>
     <script type="text/javascript" charset="utf-8">
-        function backToApp(msg) {
-            document.getElementById('ExecDiv').style.display = 'none'
-            document.getElementById('message').textContent = msg || '';
-            document.getElementById('CancelDiv').style.display = 'flex'
-        }
-
-        function getURLParameter(name, source) {
-            return decodeURIComponent((new RegExp('[?|&amp;|#]' + name + '=' +
-                            '([^&;]+?)(&|#|;|$)').exec(source) || [, ""])[1].replace(/\+/g, '%20')) || null;
-        }
-
-        const token = getURLParameter('token', location.search);
-
         amazon.Pay.renderJSButton('#AmazonPayButton', {
             // set checkout environment
             merchantId: 'A23YM23UEBY8FM',
@@ -156,6 +143,12 @@
         document.getElementById('ExecButton').addEventListener('click', (e) => {
             document.getElementById('AmazonPayButton').click();
         });
+
+        function backToApp(msg) {
+            document.getElementById('ExecDiv').style.display = 'none'
+            document.getElementById('message').textContent = msg || '';
+            document.getElementById('CancelDiv').style.display = 'flex'
+        }
     </script>
 </body>
 </html>

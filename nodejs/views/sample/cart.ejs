@@ -167,6 +167,16 @@
             }
         }
 
+        function showMsg(msg) {
+            document.getElementById('message').textContent = msg || '';
+            uncoverScreen();
+            document.getElementById('message_cover').style.display = 'flex';
+        }
+
+        document.getElementById('message_cover').addEventListener('click', e => {
+            location.href = '/sample/cart' + location.search;
+        });
+
         function loadUrl(url) {
             location.href = url;
         }
@@ -178,16 +188,6 @@
         function uncoverScreen() {
             document.getElementById('white_cover').style.display = 'none';
         }
-
-        function showMsg(msg) {
-            document.getElementById('message').textContent = msg || '';
-            uncoverScreen();
-            document.getElementById('message_cover').style.display = 'flex';
-        }
-
-        document.getElementById('message_cover').addEventListener('click', e => {
-            location.href = '/sample/cart' + location.search;
-        });
     </script>
 </body>
 </html>

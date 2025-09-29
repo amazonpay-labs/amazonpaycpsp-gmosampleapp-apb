@@ -226,7 +226,7 @@ URLを指定して、SFSafariViewController(iOS側のSecure WebView)を起動し
 
 Amazon Pay cPSPにおけるAdditionalPaymentButton(APB)では、「BuyNow」という機能がベースになっております。  
 こちらのBuyNowでは通常、ECサイトを親ページとした子ページ(Modal Window)として、Amazon側ページを開き、ECサイトとAmazon側ページが「window.postMessage()」というブラウザのwindow同士で通信する仕組みを活用することで決済処理を実現しています。  
-しかしモバイルアプリでは通常ECサイトにあたるのはモバイルアプリであり、Secure WebView上に表示されるAmazon側ページとではこの仕組みを使うことができません。  
+しかしモバイルアプリでは通常ECサイトにあたるのはモバイルアプリであり、Secure WebView上に表示されるAmazon側ページとの通信でこの仕組みを使うことができません。  
 そのためモバイルアプリでは、ECサイトに代わってAmazon側ページと通信を行う親ページがSecure WebView上に必要で、これをここでは「Amazon Pay実行ページ」と呼んでいます。  
 
 ### Server側の処理
@@ -262,7 +262,7 @@ app.get('/doAmazonPay', async (req, res) => {
                 :
         }
                 :
-</script>
+    </script>
 ```
 
 Amazon Payボタンについては、その画像が既にモバイルアプリ側で表示されており、ここで再度同じものが表示されるとユーザに違和感を与えるため、対象となる「AmazonPayButton」ノードは下記のように非表示に設定されています。  
@@ -293,16 +293,11 @@ Amazon Payボタンについては、その画像が既にモバイルアプリ�
 
 <img src="docimg/2025-09-25-12-22-49.png" height="500">  
 
-支払処理は可能な限りSecureに実行する必要があるため、有効なUser Sessionと紐づけて処理を行うのが一般的です。  
-しかしモバイルアプリでは一般的に、User Sessionはアプリ側で保持されているので、User Sessionに直接アクセスできないSecure WebView上で支払処理を実行するのはSecurity上好ましくありません。  
+注文確定は支払完了となる処理であるため、可能な限りSecureに実行する必要があり、有効なUser Sessionと紐づけて行うのが一般的です。  
+モバイルアプリでは通常User Sessionはアプリ側で保持されており、User Sessionに直接アクセスできないSecure WebView上では注文確定の手前まで処理を進め、注文確定はアプリに戻ってから実行します。  
 
-なので、
-- 決済処理に必要なパラメタをサーバー側に保存し、モバイルアプリに戻る
-- モバイルアプリからWebView内の関数を起動して決済処理を実行
 
-という、二段階で決済処理を実行します。  
-
-### 決済処理に必要なパラメタをサーバー側に保存し、モバイルアプリに戻る
+### 注文確定手前まで決済処理を進め、モバイルアプリに戻る
 
 Amazon側ページにて「今すぐ支払う」ボタンをタップすると、親ページでAmazon Payボタンを描画したときにパラメタとして渡した「onCompleteCheckout」というEvent Handlerが起動します。  
 ここでの親ページはAmazon Pay実行ページであり、該当のEvent Handlerのコードは下記になります。  
@@ -415,7 +410,7 @@ Requestのbodyと、アクセス用tokenで保存したcart情報をパラメタ
 Responseが成功なら支払確定ボタンにUniversal LinkのURL(後述)を設定してから画面を切り替えて支払確定ボタンを表示し、失敗や想定外エラーならエラーメッセージを画面に表示します。  
 このUniversal Linksの詳細は[こちら](./README_swv2app.md)に記載されています。こちらが設定されているLinkをタップすることでモバイルアプリに戻ることができます。  
 
-### モバイルアプリからWebView内の関数を起動して決済処理を実行
+### モバイルアプリからWebView内の関数を起動して、注文確定
 このUniversal Linksにより起動されるのが、下記のNativeコードになります。  
 
 ```swift
